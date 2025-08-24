@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  
+  <title>Cronômetro de Round</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <!-- Para iOS -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Cronômetro de Round">
+
+  <!-- Tema da barra de endereço (Chrome) -->
+  <meta name="theme-color" content="#f8d000">
+
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #111;
+      color: white;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #f8d000;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #222;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+    }
+
+    .timer {
+      font-size: 5rem;
+      margin: 20px 0;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    .status {
+      font-size: 1.5rem;
+      margin-bottom: 10px;
+      color: #f8d000;
+    }
+
+    .round-info {
+      font-size: 1.2rem;
+      color: #aaa;
+    }
+
+    .controls button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: #f8d000;
+      color: #000;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .controls button:hover {
+      background-color: #ffeb3b;
+    }
+
+    .settings {
+      margin: 20px 0;
+      padding: 15px;
+      background-color: #333;
+      border-radius: 8px;
+    }
+
+    .settings label {
+      display: block;
+      margin: 10px 0 5px;
+      color: #ccc;
+    }
+
+    .settings input {
+      width: 60px;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background-color: #444;
+      color: white;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="logo/clandestinos_muay_thai_amarelo.png" width="249" height="205" alt="Logo Clandestinos Muay Thai"/>
+    <h1>Cronômetro de Round</h1>
+
+    <div class="settings">
+      <label>Rounds</label>
+      <input type="number" id="rounds" value="3" min="1" max="12" />
+
+      <label>Duração do Round (min)</label>
+      <input type="number" id="roundMinutes" value="3" min="1" max="5" />
+
+      <label>Duração do Intervalo (min)</label>
+      <input type="number" id="restMinutes" value="1" min="0" max="3" />
+    </div>
+
+    <div class="status" id="status">Pronto</div>
+    <div class="round-info" id="roundInfo">Round 0 de 0</div>
+    <div class="timer" id="timer">00:00</div>
+
+    <div class="controls">
+      <button id="startBtn">Iniciar</button>
+      <button id="pauseBtn">Pausar</button>
+      <button id="resetBtn">Reiniciar</button>
+    </div>
+  </div>
+
+  <!-- SONS -->
+  <audio id="startSound" src="boxing-bell-1-232450.mp3" preload="auto"></audio>
+  <audio id="endSound" src="boxing-bell-1-232450.mp3" preload="auto"></audio>
+
+  <!-- Script do Service Worker (deve estar antes do </body>) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log('Service Worker registrado:', reg.scope))
+          .catch(err => console.log('Falha ao registrar SW:', err));
+      });
+    }
+  </script>
+
+  <!-- Script principal do cronômetro -->
+  <script>
+    // Elementos
+    const timerDisplay = document.getElementById("timer");
+    const statusDisplay = document.getElementById("status");
+    const roundInfoDisplay = document.getElementById("roundInfo");
+    const startBtn = document.getElementById("startBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const roundsInput = document.getElementById("rounds");
+    const roundMinutesInput = document.getElementById("roundMinutes");
+    const restMinutesInput = document.getElementById("restMinutes");
+
+    const startSound = document.getElementById("startSound");
+    const endSound = document.getElementById("endSound");
+
+    // Variáveis do cronômetro
+    let interval;
+    let totalRounds;
+    let roundDuration;
+    let restDuration;
+    let currentRound = 0;
+    let timeLeft = 0;
+    let isRunning = false;
+    let isResting = false;
+
+    function updateDisplay() {
+      const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+      const seconds = (timeLeft % 60).toString().padStart(2, '0');
+      timerDisplay.textContent = `${minutes}:${seconds}`;
+    }
+
+    function startTimer() {
+      if (isRunning) return;
+
+      if (currentRound === 0) {
+        totalRounds = parseInt(roundsInput.value);
+        roundDuration = parseInt(roundMinutesInput.value) * 60;
+        restDuration = parseInt(restMinutesInput.value) * 60;
+        currentRound = 1;
+        timeLeft = roundDuration;
+        isResting = false;
+        statusDisplay.textContent = "Round";
+        roundInfoDisplay.textContent = `Round ${currentRound} de ${totalRounds}`;
+        startSound.play();
+      }
+
+      isRunning = true;
+      interval = setInterval(() => {
+        timeLeft--;
+
+        if (timeLeft <= 0) {
+          endSound.play();
+
+          if (!isResting) {
+            if (currentRound < totalRounds) {
+              isResting = true;
+              timeLeft = restDuration;
+              statusDisplay.textContent = "Intervalo";
+              startSound.play();
+            } else {
+              statusDisplay.textContent = "Fim!";
+              isRunning = false;
+              clearInterval(interval);
+              return;
+            }
+          } else {
+            isResting = false;
+            currentRound++;
+            timeLeft = roundDuration;
+            statusDisplay.textContent = "Round";
+            roundInfoDisplay.textContent = `Round ${currentRound} de ${totalRounds}`;
+            if (currentRound <= totalRounds) {
+              startSound.play();
+            }
+          }
+        }
+
+        updateDisplay();
+      }, 1000);
+
+      updateDisplay();
+    }
+
+    function pauseTimer() {
+      if (!isRunning) return;
+      clearInterval(interval);
+      isRunning = false;
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      currentRound = 0;
+      isResting = false;
+      statusDisplay.textContent = "Pronto";
+      roundInfoDisplay.textContent = "Round 0 de 0";
+      timerDisplay.textContent = "00:00";
+    }
+
+    // Eventos
+    startBtn.addEventListener("click", startTimer);
+    pauseBtn.addEventListener("click", pauseTimer);
+    resetBtn.addEventListener("click", resetTimer);
+
+    // Inicializa display
+    updateDisplay();
+  </script>
+</body>
+</html>
